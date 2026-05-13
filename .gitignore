@@ -6,3 +6,4 @@ release/
 .gjcbin/
 /.cabal/
 /.vscode/
+/.release/
