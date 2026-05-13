@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    paths:
+      - 'GlassJar.cabal'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if version changed
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          elif git diff ${{ github.event.before }} ${{ github.event.after }} -- GlassJar.cabal | grep -q 'version:'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract version
+        if: steps.check.outputs.changed == 'true'
+        id: version
+        shell: bash
+        run: |
+          VER=$(grep '^version:' GlassJar.cabal | head -1 | sed 's/^version:\s*//')
+          echo "value=$VER" >> $GITHUB_OUTPUT
+
+      - uses: haskell-actions/setup@v2
+        if: steps.check.outputs.changed == 'true'
+        with:
+          ghc-version: '9.6.7'
+          cabal-version: 'latest'
+
+      - name: Build
+        if: steps.check.outputs.changed == 'true'
+        run: cabal update && cabal build
+
+      - name: Package
+        if: steps.check.outputs.changed == 'true'
+        shell: powershell
+        run: .\package-release.ps1 -OutputZip "release\glassjar-windows-${{ steps.version.outputs.value }}.zip"
+
+      - name: Upload artifact
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: glassjar-windows-${{ steps.version.outputs.value }}
+          path: release\*.zip
