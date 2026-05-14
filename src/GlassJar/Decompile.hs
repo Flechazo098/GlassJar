@@ -1,60 +1,58 @@
-{-|
-Module      : GlassJar.Decompile
-Description : Class decompilation enrichment for JAR diffs.
-Copyright   : (c) Flechazo, 2026
-License     : MIT
-Maintainer  : 2558755403@qq.com
-
-Rewrites class-entry payloads into decompiled source text using
-configurable backend tools (CFR, Vineflower).
--}
-
 {-# LANGUAGE OverloadedStrings #-}
 
+-- |
+-- Module      : GlassJar.Decompile
+-- Description : Class decompilation enrichment for JAR diffs.
+-- Copyright   : (c) Flechazo, 2026
+-- License     : MIT
+-- Maintainer  : 2558755403@qq.com
+--
+-- Rewrites class-entry payloads into decompiled source text using
+-- configurable backend tools (CFR, Vineflower).
 module GlassJar.Decompile
-  ( DecompilerBackend (..)
-  , DecompileBatchMode (..)
-  , DecompileSettings (..)
-  , defaultDecompileSettings
-  , prepareDiffsWithDecompilers
-  , prepareDiffsWithDecompilersProgress
-  ) where
-
-import GlassJar.Internal
-  ( decodeLenient
-  , digestToHex
-  , isClassEntry
-  , stripClassExt
-  , toEntryPath
+  ( DecompilerBackend (..),
+    DecompileBatchMode (..),
+    DecompileSettings (..),
+    defaultDecompileSettings,
+    prepareDiffsWithDecompilers,
+    prepareDiffsWithDecompilersProgress,
   )
-import GlassJar.Types (JarDiff (..))
+where
 
 import qualified Codec.Compression.Zlib as Z
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.MVar (modifyMVar_, newMVar)
 import Control.Monad (filterM)
 import Crypto.Hash (Digest, MD5, hash)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.Char (toLower)
 import Data.List (isInfixOf, isSuffixOf, partition)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
+import GlassJar.Internal
+  ( decodeLenient,
+    digestToHex,
+    isClassEntry,
+    stripClassExt,
+    toEntryPath,
+  )
+import GlassJar.Types (JarDiff (..))
 import System.Directory
-  ( createDirectoryIfMissing
-  , doesDirectoryExist
-  , doesFileExist
-  , listDirectory
+  ( createDirectoryIfMissing,
+    doesDirectoryExist,
+    doesFileExist,
+    listDirectory,
   )
 import System.Exit (ExitCode (..))
 import System.FilePath
-  ( (</>)
-  , makeRelative
-  , replaceExtension
-  , takeDirectory
+  ( makeRelative,
+    replaceExtension,
+    takeDirectory,
+    (</>),
   )
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
@@ -65,16 +63,22 @@ import System.Process (readProcessWithExitCode)
 
 -- | Selects the decompiler backend to use for class decompilation.
 data DecompilerBackend
-  = BackendAuto        -- ^ Tries Vineflower first, then falls back to CFR.
-  | BackendCfr         -- ^ Uses CFR exclusively.
-  | BackendVineflower  -- ^ Uses Vineflower exclusively.
+  = -- | Tries Vineflower first, then falls back to CFR.
+    BackendAuto
+  | -- | Uses CFR exclusively.
+    BackendCfr
+  | -- | Uses Vineflower exclusively.
+    BackendVineflower
   deriving (Show, Eq)
 
 -- | Controls how class decompilation tasks are grouped for tool execution.
 data DecompileBatchMode
-  = BatchAuto  -- ^ Chooses per-class or batched mode automatically based on input count.
-  | BatchOn    -- ^ Forces batched execution.
-  | BatchOff   -- ^ Forces per-class execution.
+  = -- | Chooses per-class or batched mode automatically based on input count.
+    BatchAuto
+  | -- | Forces batched execution.
+    BatchOn
+  | -- | Forces per-class execution.
+    BatchOff
   deriving (Show, Eq)
 
 -- | Configures class decompilation behavior.
@@ -86,28 +90,30 @@ data DecompileBatchMode
 -- @dcPreferOuterClassView@ replaces inner class content with the outer
 -- class decompilation result when the outer class is among changed entries.
 data DecompileSettings = DecompileSettings
-  { dcBackend :: !DecompilerBackend
-  , dcToolsDir :: !FilePath
-  , dcShowLambda :: !Bool
-  , dcJobs :: !Int
-  , dcBatchMode :: !DecompileBatchMode
-  , dcUseCache :: !Bool
-  , dcCacheDir :: !FilePath
-  , dcPreferOuterClassView :: !Bool
-  } deriving (Show, Eq)
+  { dcBackend :: !DecompilerBackend,
+    dcToolsDir :: !FilePath,
+    dcShowLambda :: !Bool,
+    dcJobs :: !Int,
+    dcBatchMode :: !DecompileBatchMode,
+    dcUseCache :: !Bool,
+    dcCacheDir :: !FilePath,
+    dcPreferOuterClassView :: !Bool
+  }
+  deriving (Show, Eq)
 
 -- | Provides default decompilation settings.
 defaultDecompileSettings :: DecompileSettings
-defaultDecompileSettings = DecompileSettings
-  { dcBackend = BackendAuto
-  , dcToolsDir = "data"
-  , dcShowLambda = True
-  , dcJobs = 4
-  , dcBatchMode = BatchAuto
-  , dcUseCache = True
-  , dcCacheDir = ".glassjar-cache/decompile"
-  , dcPreferOuterClassView = True
-  }
+defaultDecompileSettings =
+  DecompileSettings
+    { dcBackend = BackendAuto,
+      dcToolsDir = "data",
+      dcShowLambda = True,
+      dcJobs = 4,
+      dcBatchMode = BatchAuto,
+      dcUseCache = True,
+      dcCacheDir = ".glassjar-cache/decompile",
+      dcPreferOuterClassView = True
+    }
 
 -------------------------------------------------------------------------------
 -- Public API
@@ -126,15 +132,15 @@ prepareDiffsWithDecompilers settings =
 --
 --   * The number of class entries processed so far
 --   * The total class entries that require decompilation
-prepareDiffsWithDecompilersProgress
-  :: DecompileSettings
-  -> (Int -> Int -> IO ())
-  -> [JarDiff]
-  -> IO [JarDiff]
+prepareDiffsWithDecompilersProgress ::
+  DecompileSettings ->
+  (Int -> Int -> IO ()) ->
+  [JarDiff] ->
+  IO [JarDiff]
 prepareDiffsWithDecompilersProgress settings onProgress diffs = do
   let totalClassCount = length [() | d <- diffs, isClassEntry (diffEntry d)]
       payloads = buildPayloads settings diffs
-      payloadLookup = Map.fromList [ ((diSideNew p, diEntry p), diKey p) | p <- payloads ]
+      payloadLookup = Map.fromList [((diSideNew p, diEntry p), diKey p) | p <- payloads]
   onProgress 0 totalClassCount
   batchOut <- decompileClassBatch settings payloads
 
@@ -150,21 +156,22 @@ prepareDiffsWithDecompilersProgress settings onProgress diffs = do
             let done' = done + 1
             onProgress done' total
             pure done'
-          pure d
-            { diffOldContent = oldC
-            , diffNewContent = newC
-            }
+          pure
+            d
+              { diffOldContent = oldC,
+                diffNewContent = newC
+              }
 
     rewriteSide batchOut payloadLookup isNew k entry raw =
       case Map.lookup k batchOut of
         Just (Right txt) ->
           pure (BSL.fromStrict (TE.encodeUtf8 (applyLambdaFilter (dcShowLambda settings) txt)))
         _ | Just outer <- outerClassPath entry ->
-              case Map.lookup (isNew, outer) payloadLookup >>= (`Map.lookup` batchOut) of
-                Just (Right txt) ->
-                  pure (BSL.fromStrict (TE.encodeUtf8 (applyLambdaFilter (dcShowLambda settings) txt)))
-                _ ->
-                  decompileClassPayload settings entry raw
+          case Map.lookup (isNew, outer) payloadLookup >>= (`Map.lookup` batchOut) of
+            Just (Right txt) ->
+              pure (BSL.fromStrict (TE.encodeUtf8 (applyLambdaFilter (dcShowLambda settings) txt)))
+            _ ->
+              decompileClassPayload settings entry raw
         _ ->
           decompileClassPayload settings entry raw
 
@@ -173,11 +180,11 @@ prepareDiffsWithDecompilersProgress settings onProgress diffs = do
 -------------------------------------------------------------------------------
 
 data DecompileInput = DecompileInput
-  { diKey :: !Int
-  , diEntry :: !T.Text
-  , diBytes :: !BSL.ByteString
-  , diSideNew :: !Bool
-  , diDigest :: !T.Text
+  { diKey :: !Int,
+    diEntry :: !T.Text,
+    diBytes :: !BSL.ByteString,
+    diSideNew :: !Bool,
+    diDigest :: !T.Text
   }
 
 buildPayloads :: DecompileSettings -> [JarDiff] -> [DecompileInput]
@@ -186,8 +193,8 @@ buildPayloads settings diffs = concatMap mkOne (zip [0 :: Int ..] diffs)
     changedClassEntries =
       Map.fromList
         [ (diffEntry d, ())
-        | d <- diffs
-        , isClassEntry (diffEntry d)
+          | d <- diffs,
+            isClassEntry (diffEntry d)
         ]
 
     mkOne (ix, d)
@@ -201,22 +208,22 @@ buildPayloads settings diffs = concatMap mkOne (zip [0 :: Int ..] diffs)
             && maybe False (`Map.member` changedClassEntries) (outerClassPath (diffEntry d))
         oldPayload =
           [ mkPayload ix False (diffEntry d) oldBs
-          | not shouldSkip
-          , Just oldBs <- [diffOldContent d] 
+            | not shouldSkip,
+              Just oldBs <- [diffOldContent d]
           ]
         newPayload =
           [ mkPayload ix True (diffEntry d) newBs
-          | not shouldSkip 
-          , Just newBs <- [diffNewContent d]
+            | not shouldSkip,
+              Just newBs <- [diffNewContent d]
           ]
 
     mkPayload ix isNew entry bs =
       DecompileInput
-        { diKey = payloadKey ix isNew
-        , diEntry = entry
-        , diBytes = bs
-        , diSideNew = isNew
-        , diDigest = digestToHex (hash (BSL.toStrict bs))
+        { diKey = payloadKey ix isNew,
+          diEntry = entry,
+          diBytes = bs,
+          diSideNew = isNew,
+          diDigest = digestToHex (hash (BSL.toStrict bs))
         }
 
 payloadKey :: Int -> Bool -> Int
@@ -240,20 +247,21 @@ decompileClassPayload settings clsEntryName classBytes = do
 
 renderDecompileFailure :: T.Text -> String -> BSL.ByteString
 renderDecompileFailure clsEntryName err =
-  BSL.fromStrict . TE.encodeUtf8 $ T.unlines
-    [ "/* decompile failed */"
-    , "/* entry: " <> clsEntryName <> " */"
-    , "/* reason: " <> T.pack err <> " */"
-    ]
+  BSL.fromStrict . TE.encodeUtf8 $
+    T.unlines
+      [ "/* decompile failed */",
+        "/* entry: " <> clsEntryName <> " */",
+        "/* reason: " <> T.pack err <> " */"
+      ]
 
 -------------------------------------------------------------------------------
 -- Batch orchestration
 -------------------------------------------------------------------------------
 
-decompileClassBatch
-  :: DecompileSettings
-  -> [DecompileInput]
-  -> IO (Map.Map Int (Either String T.Text))
+decompileClassBatch ::
+  DecompileSettings ->
+  [DecompileInput] ->
+  IO (Map.Map Int (Either String T.Text))
 decompileClassBatch _ [] = pure Map.empty
 decompileClassBatch settings inputs =
   do
@@ -281,10 +289,10 @@ decompileClassBatch settings inputs =
             then runPerClass cfg sideInputs
             else runBatched cfg sideInputs
 
-runPerClass
-  :: DecompileSettings
-  -> [DecompileInput]
-  -> IO (Map.Map Int (Either String T.Text))
+runPerClass ::
+  DecompileSettings ->
+  [DecompileInput] ->
+  IO (Map.Map Int (Either String T.Text))
 runPerClass settings inputs = do
   let jobs = max 1 (dcJobs settings)
       buckets = splitInto jobs inputs
@@ -296,10 +304,10 @@ runPerClass settings inputs = do
       r <- decompileWithBackends settings (diEntry di) (diBytes di)
       pure (diKey di, r)
 
-runBatched
-  :: DecompileSettings
-  -> [DecompileInput]
-  -> IO (Map.Map Int (Either String T.Text))
+runBatched ::
+  DecompileSettings ->
+  [DecompileInput] ->
+  IO (Map.Map Int (Either String T.Text))
 runBatched settings inputs = do
   let jobs = max 1 (dcJobs settings)
       workers = chooseBatchWorkers jobs (length inputs)
@@ -315,19 +323,19 @@ chooseBatchWorkers jobs totalInputs
   | otherwise =
       let targetPerBatch = 40 :: Int
           bySize = max 1 ((totalInputs + targetPerBatch - 1) `div` targetPerBatch)
-      in min jobs bySize
+       in min jobs bySize
 
-runBatchEntries
-  :: DecompileSettings
-  -> [(T.Text, BSL.ByteString)]
-  -> IO (Map.Map T.Text (Either String T.Text))
+runBatchEntries ::
+  DecompileSettings ->
+  [(T.Text, BSL.ByteString)] ->
+  IO (Map.Map T.Text (Either String T.Text))
 runBatchEntries settings entries =
   case dcBackend settings of
     BackendCfr -> runBatchCfrFilled settings entries
     BackendVineflower -> runBatchVineflowerFilled settings entries
     BackendAuto -> do
       vf <- runBatchVineflowerFilled settings entries
-      let unresolved = [ (e, bs) | (e, bs) <- entries, unresolvedEntry e vf ]
+      let unresolved = [(e, bs) | (e, bs) <- entries, unresolvedEntry e vf]
       if null unresolved
         then pure vf
         else do
@@ -362,18 +370,18 @@ outerClassPath entry
   | otherwise =
       let stem = stripClassExt entry
           (outerStem, rest) = T.breakOn "$" stem
-      in if T.null rest
-          then Nothing
-          else Just (outerStem <> ".class")
+       in if T.null rest
+            then Nothing
+            else Just (outerStem <> ".class")
 
 -------------------------------------------------------------------------------
 -- Cache
 -------------------------------------------------------------------------------
 
-loadBatchCache
-  :: DecompileSettings
-  -> [DecompileInput]
-  -> IO (Map.Map Int (Either String T.Text))
+loadBatchCache ::
+  DecompileSettings ->
+  [DecompileInput] ->
+  IO (Map.Map Int (Either String T.Text))
 loadBatchCache settings =
   fmap (Map.fromList . catMaybes) . mapM readOne
   where
@@ -383,11 +391,11 @@ loadBatchCache settings =
         Just txt -> Just (diKey di, Right txt)
         Nothing -> Nothing
 
-saveBatchCache
-  :: DecompileSettings
-  -> Map.Map Int (Either String T.Text)
-  -> [DecompileInput]
-  -> IO ()
+saveBatchCache ::
+  DecompileSettings ->
+  Map.Map Int (Either String T.Text) ->
+  [DecompileInput] ->
+  IO ()
 saveBatchCache settings out =
   mapM_ saveOne
   where
@@ -410,7 +418,7 @@ readCacheText settings di
             then
               let payload = BS.drop (BS.length cacheMagic) raw
                   decompressed = Z.decompress (BSL.fromStrict payload)
-              in pure (Just (decodeLenient decompressed))
+               in pure (Just (decodeLenient decompressed))
             else pure (Just (TE.decodeUtf8With lenientDecode raw))
 
 writeCacheText :: DecompileSettings -> DecompileInput -> T.Text -> IO ()
@@ -421,9 +429,10 @@ writeCacheText settings di txt
           encoded = TE.encodeUtf8 txt
           compressed =
             BSL.toStrict $
-              Z.compressWith Z.defaultCompressParams
-                { Z.compressLevel = Z.bestCompression
-                }
+              Z.compressWith
+                Z.defaultCompressParams
+                  { Z.compressLevel = Z.bestCompression
+                  }
                 (BSL.fromStrict encoded)
           packed = cacheMagic <> compressed
       createParentDirectories fp
@@ -446,7 +455,7 @@ cacheFilePath settings di =
       lvl1 = take 2 configTag
       lvl2 = take 2 (drop 2 configTag)
       name = fileStem <> ".gjcbin"
-  in dcCacheDir settings </> lvl1 </> lvl2 </> name
+   in dcCacheDir settings </> lvl1 </> lvl2 </> name
 
 cacheMagic :: BS.ByteString
 cacheMagic = BS.pack [71, 74, 67, 49]
@@ -462,46 +471,46 @@ splitInto n xs
       let len = length ys
           sz = max 1 ((len + buckets - 1) `div` buckets)
           (h, t) = splitAt sz ys
-      in h : go (buckets - 1) t
+       in h : go (buckets - 1) t
 
 -------------------------------------------------------------------------------
 -- Batch backend runners
 -------------------------------------------------------------------------------
 
-runBatchVineflowerFilled
-  :: DecompileSettings
-  -> [(T.Text, BSL.ByteString)]
-  -> IO (Map.Map T.Text (Either String T.Text))
+runBatchVineflowerFilled ::
+  DecompileSettings ->
+  [(T.Text, BSL.ByteString)] ->
+  IO (Map.Map T.Text (Either String T.Text))
 runBatchVineflowerFilled settings inputs = do
   r <- runBatchVineflower settings inputs
   pure (fillBatchResult inputs r)
 
-runBatchCfrFilled
-  :: DecompileSettings
-  -> [(T.Text, BSL.ByteString)]
-  -> IO (Map.Map T.Text (Either String T.Text))
+runBatchCfrFilled ::
+  DecompileSettings ->
+  [(T.Text, BSL.ByteString)] ->
+  IO (Map.Map T.Text (Either String T.Text))
 runBatchCfrFilled settings inputs = do
   r <- runBatchCfr settings inputs
   pure (fillBatchResult inputs r)
 
-fillBatchResult
-  :: [(T.Text, BSL.ByteString)]
-  -> Either String (Map.Map T.Text T.Text)
-  -> Map.Map T.Text (Either String T.Text)
+fillBatchResult ::
+  [(T.Text, BSL.ByteString)] ->
+  Either String (Map.Map T.Text T.Text) ->
+  Map.Map T.Text (Either String T.Text)
 fillBatchResult inputs result =
   case result of
     Left err ->
-      Map.fromList [ (entry, Left err) | (entry, _) <- inputs ]
+      Map.fromList [(entry, Left err) | (entry, _) <- inputs]
     Right out ->
       Map.fromList
         [ (entry, maybe (Left "batch output missing") Right (Map.lookup entry out))
-        | (entry, _) <- inputs
+          | (entry, _) <- inputs
         ]
 
-runBatchVineflower
-  :: DecompileSettings
-  -> [(T.Text, BSL.ByteString)]
-  -> IO (Either String (Map.Map T.Text T.Text))
+runBatchVineflower ::
+  DecompileSettings ->
+  [(T.Text, BSL.ByteString)] ->
+  IO (Either String (Map.Map T.Text T.Text))
 runBatchVineflower settings inputs =
   withSystemTempDirectory "glassjar-vf-batch" $ \tmp -> do
     jarPath <- findToolJar (dcToolsDir settings) ["vineflower", "fernflower", "quiltflower"]
@@ -519,10 +528,10 @@ runBatchVineflower settings inputs =
           then pure (Left err)
           else Right <$> readBatchOutputs outDir
 
-runBatchCfr
-  :: DecompileSettings
-  -> [(T.Text, BSL.ByteString)]
-  -> IO (Either String (Map.Map T.Text T.Text))
+runBatchCfr ::
+  DecompileSettings ->
+  [(T.Text, BSL.ByteString)] ->
+  IO (Either String (Map.Map T.Text T.Text))
 runBatchCfr settings inputs =
   withSystemTempDirectory "glassjar-cfr-batch" $ \tmp -> do
     jarPath <- findToolJar (dcToolsDir settings) ["cfr", "cfr-"]
@@ -532,15 +541,15 @@ runBatchCfr settings inputs =
         let inDir = tmp </> "in"
             outDir = tmp </> "out"
             args =
-              [ "-jar"
-              , cfrJar
-              , inDir
-              , "--outputdir"
-              , outDir
-              , "--silent"
-              , "true"
-              , "--decodelambdas"
-              , if dcShowLambda settings then "true" else "false"
+              [ "-jar",
+                cfrJar,
+                inDir,
+                "--outputdir",
+                outDir,
+                "--silent",
+                "true",
+                "--decodelambdas",
+                if dcShowLambda settings then "true" else "false"
               ]
         writeBatchInputs inDir inputs
         createDirectoryIfMissing True outDir
@@ -565,6 +574,7 @@ readBatchOutputs outDir = do
           relNorm = toEntryPath rel
           clsName = replaceExtension relNorm ".class"
       pure (T.pack clsName, TE.decodeUtf8With lenientDecode bytes)
+
 collectJavaFiles :: FilePath -> IO [FilePath]
 collectJavaFiles root = do
   exists <- doesDirectoryExist root
@@ -641,8 +651,8 @@ applyLambdaFilter True t = t
 applyLambdaFilter False t =
   T.unlines
     [ line
-    | line <- T.lines t
-    , not ("lambda$" `T.isInfixOf` line)
+      | line <- T.lines t,
+        not ("lambda$" `T.isInfixOf` line)
     ]
 
 findToolJar :: FilePath -> [String] -> IO (Maybe FilePath)
@@ -655,13 +665,13 @@ findToolJar dir prefixes = do
       let lowered = map (\n -> (n, map toLower n)) names
           pick =
             [ dir </> n
-            | (n, low) <- lowered
-            , ".jar" `isSuffixOf` low
-            , any (`isInfixOf` low) prefixes
+              | (n, low) <- lowered,
+                ".jar" `isSuffixOf` low,
+                any (`isInfixOf` low) prefixes
             ]
       pure $ case pick of
         [] -> Nothing
-        (x:_) -> Just x
+        (x : _) -> Just x
 
 writeParentFile :: FilePath -> BSL.ByteString -> IO ()
 writeParentFile fp content = do
@@ -685,11 +695,11 @@ firstJavaFile root = do
       subdirs <- filterM doesDirectoryExist files
       let javaFiles = [f | f <- files, ".java" `isSuffixOf` map toLower f]
       case javaFiles of
-        (f:_) -> pure (Just f)
+        (f : _) -> pure (Just f)
         [] -> search subdirs
 
     search [] = pure Nothing
-    search (d:ds) = do
+    search (d : ds) = do
       r <- go d
       case r of
         Just _ -> pure r

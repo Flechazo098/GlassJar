@@ -1,55 +1,48 @@
-{-|
-Module      : GlassJar
-Description : API for computing and reporting differences between analyzable inputs.
-Copyright   : (c) Flechazo, 2026
-License     : MIT
-Maintainer  : 2558755403@qq.com
-
-Defines behavior for reading archive or filesystem inputs,
-classifying structural entry changes, and rendering diff reports
-in text, git-diff, JSON, or HTML format.
--}
-
 {-# LANGUAGE OverloadedStrings #-}
 
+-- |
+-- Module      : GlassJar
+-- Description : API for computing and reporting differences between analyzable inputs.
+-- Copyright   : (c) Flechazo, 2026
+-- License     : MIT
+-- Maintainer  : 2558755403@qq.com
+--
+-- Defines behavior for reading archive or filesystem inputs,
+-- classifying structural entry changes, and rendering diff reports
+-- in text, git-diff, JSON, or HTML format.
 module GlassJar
   ( -- * Re-exports from GlassJar.Types
-    module GlassJar.Types
+    module GlassJar.Types,
 
     -- * Re-exports from GlassJar.Html
-  , formatReportHtml
+    formatReportHtml,
 
     -- * Re-exports from GlassJar.Decompile
-  , module GlassJar.Decompile
+    module GlassJar.Decompile,
 
     -- * Re-exports from GlassJar.Report
-  , formatReport
-  , formatReportGitDiff
-  , formatReportJson
+    formatReport,
+    formatReportGitDiff,
+    formatReportJson,
 
     -- * Core Functions
-  , readJar
-  , readInput
-  , diffJars
-  , diffJarsWith
-  , groupInnerClassDiffs
+    readJar,
+    readInput,
+    diffJars,
+    diffJarsWith,
+    groupInnerClassDiffs,
 
     -- * Diff Settings
-  , DiffSettings (..)
-  , defaultDiffSettings
-  ) where
-
-import GlassJar.Types
-import GlassJar.Html (formatReportHtml)
-import GlassJar.Decompile
-import GlassJar.Report (formatReport, formatReportGitDiff, formatReportJson)
-import GlassJar.Internal (decodeLenient, digestToHex, isClassEntry, stripClassExt, toEntryPath)
+    DiffSettings (..),
+    defaultDiffSettings,
+  )
+where
 
 import Codec.Archive.Zip
-  ( Entry (..)
-  , fromEntry
-  , toArchiveOrFail
-  , zEntries
+  ( Entry (..),
+    fromEntry,
+    toArchiveOrFail,
+    zEntries,
   )
 import Crypto.Hash (hash)
 import Data.Bits (complement, shiftR, xor)
@@ -57,16 +50,21 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.List (foldl', isSuffixOf, partition, sortOn)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word32, Word8)
+import GlassJar.Decompile
+import GlassJar.Html (formatReportHtml)
+import GlassJar.Internal (decodeLenient, digestToHex, isClassEntry, stripClassExt, toEntryPath)
+import GlassJar.Report (formatReport, formatReportGitDiff, formatReportJson)
+import GlassJar.Types
 import System.Directory
-  ( doesDirectoryExist
-  , doesFileExist
-  , listDirectory
+  ( doesDirectoryExist,
+    doesFileExist,
+    listDirectory,
   )
-import System.FilePath ((</>), splitExtension, takeFileName)
-import Data.Maybe (isNothing, isJust)
+import System.FilePath (splitExtension, takeFileName, (</>))
 
 -------------------------------------------------------------------------------
 -- Core Settings
@@ -74,18 +72,20 @@ import Data.Maybe (isNothing, isJust)
 
 -- | Controls structural-diff comparison behavior.
 data DiffSettings = DiffSettings
-  { dsUseCrcComparison :: !Bool
-  , dsIgnoreClassSameSize :: !Bool
-  , dsGroupInnerClasses :: !Bool
-  } deriving (Show, Eq)
+  { dsUseCrcComparison :: !Bool,
+    dsIgnoreClassSameSize :: !Bool,
+    dsGroupInnerClasses :: !Bool
+  }
+  deriving (Show, Eq)
 
 -- | Provides default settings for structural diff comparison.
 defaultDiffSettings :: DiffSettings
-defaultDiffSettings = DiffSettings
-  { dsUseCrcComparison = True
-  , dsIgnoreClassSameSize = False
-  , dsGroupInnerClasses = True
-  }
+defaultDiffSettings =
+  DiffSettings
+    { dsUseCrcComparison = True,
+      dsIgnoreClassSameSize = False,
+      dsGroupInnerClasses = True
+    }
 
 -------------------------------------------------------------------------------
 -- Core: Reading inputs
@@ -115,7 +115,7 @@ readFileOrArchive path = do
   case toArchiveOrFail raw of
     Right archive ->
       let entries = filter (not . isDirectoryArchiveEntry) (zEntries archive)
-      in pure $ Right $ map toJarEntryArchive entries
+       in pure $ Right $ map toJarEntryArchive entries
     Left _ ->
       pure $ Right [toStandaloneFileEntry path raw]
 
@@ -144,36 +144,37 @@ toJarEntryFromFile root rel = do
   let fp = root </> rel
   content <- BSL.readFile fp
   let normName = toEntryPath rel
-  pure JarEntry
-    { entryName = T.pack normName
-    , entrySize = fromIntegral (BSL.length content)
-    , entryContent = content
-    , entryHash = digestToHex (hash (BSL.toStrict content))
-    }
+  pure
+    JarEntry
+      { entryName = T.pack normName,
+        entrySize = fromIntegral (BSL.length content),
+        entryContent = content,
+        entryHash = digestToHex (hash (BSL.toStrict content))
+      }
 
 toJarEntryArchive :: Entry -> JarEntry
 toJarEntryArchive entry =
   let content = fromEntry entry
-  in JarEntry
-    { entryName = T.pack (toEntryPath (eRelativePath entry))
-    , entrySize = fromIntegral (eUncompressedSize entry)
-    , entryContent = content
-    , entryHash = digestToHex (hash (BSL.toStrict content))
-    }
+   in JarEntry
+        { entryName = T.pack (toEntryPath (eRelativePath entry)),
+          entrySize = fromIntegral (eUncompressedSize entry),
+          entryContent = content,
+          entryHash = digestToHex (hash (BSL.toStrict content))
+        }
 
 toStandaloneFileEntry :: FilePath -> BSL.ByteString -> JarEntry
 toStandaloneFileEntry path content =
   JarEntry
-    { entryName = T.pack (takeFileName path)
-    , entrySize = fromIntegral (BSL.length content)
-    , entryContent = content
-    , entryHash = digestToHex (hash (BSL.toStrict content))
+    { entryName = T.pack (takeFileName path),
+      entrySize = fromIntegral (BSL.length content),
+      entryContent = content,
+      entryHash = digestToHex (hash (BSL.toStrict content))
     }
 
 isDirectoryArchiveEntry :: Entry -> Bool
 isDirectoryArchiveEntry e =
   let rel = eRelativePath e
-  in null rel || "/" `isSuffixOf` rel || "\\" `isSuffixOf` rel
+   in null rel || "/" `isSuffixOf` rel || "\\" `isSuffixOf` rel
 
 -------------------------------------------------------------------------------
 -- Core: Diffing algorithm
@@ -191,26 +192,31 @@ diffJarsWith settings oldEntries newEntries =
 
       addedRaw =
         [ JarDiff name Added Nothing (Just (entryHash ne)) Nothing (Just (entryContent ne))
-        | (name, ne) <- Map.toList newMap
-        , name `Map.notMember` oldMap
+          | (name, ne) <- Map.toList newMap,
+            name `Map.notMember` oldMap
         ]
 
       removedRaw =
         [ JarDiff name Removed (Just (entryHash oe)) Nothing (Just (entryContent oe)) Nothing
-        | (name, oe) <- Map.toList oldMap
-        , name `Map.notMember` newMap
+          | (name, oe) <- Map.toList oldMap,
+            name `Map.notMember` newMap
         ]
 
       modifiedRaw =
-        [ JarDiff name Modified (Just (entryHash oe)) (Just (entryHash ne))
-            (Just (entryContent oe)) (Just (entryContent ne))
-        | (name, oe) <- Map.toList oldMap
-        , Just ne <- [Map.lookup name newMap]
-        , entriesDiffer settings name oe ne
+        [ JarDiff
+            name
+            Modified
+            (Just (entryHash oe))
+            (Just (entryHash ne))
+            (Just (entryContent oe))
+            (Just (entryContent ne))
+          | (name, oe) <- Map.toList oldMap,
+            Just ne <- [Map.lookup name newMap],
+            entriesDiffer settings name oe ne
         ]
 
       merged = addedRaw ++ removedRaw ++ modifiedRaw
-  in sortOn diffEntry merged
+   in sortOn diffEntry merged
 
 entriesDiffer :: DiffSettings -> T.Text -> JarEntry -> JarEntry -> Bool
 entriesDiffer settings name oldE newE
@@ -228,7 +234,7 @@ classGroupKey name
       let raw = T.unpack name
           (stem, ext) = splitExtension raw
           groupedStem = takeWhile (/= '$') stem
-      in T.pack (groupedStem <> ext)
+       in T.pack (groupedStem <> ext)
 
 -- | Groups inner class diffs together under their outer class entry.
 groupInnerClassDiffs :: [JarDiff] -> [JarDiff]
@@ -239,20 +245,21 @@ groupInnerClassDiffs diffs =
         sortOn
           (\(anchorIx, _, _) -> anchorIx)
           [ (groupAnchor acc, k, orderedGroupItems k (reverse (groupItemsRev acc)))
-          | (k, acc) <- Map.toList grouped
+            | (k, acc) <- Map.toList grouped
           ]
-  in [ toMerged (k, xs) | (_, k, xs) <- orderedGroups ]
+   in [toMerged (k, xs) | (_, k, xs) <- orderedGroups]
   where
     step m (ix, d) =
       let k = classGroupKey (diffEntry d)
-      in Map.alter (updateAcc ix d k) k m
+       in Map.alter (updateAcc ix d k) k m
 
     updateAcc ix d k Nothing =
-      Just GroupAcc
-        { groupItemsRev = [d]
-        , groupFirstIx = ix
-        , groupOuterIx = if diffEntry d == k then Just ix else Nothing
-        }
+      Just
+        GroupAcc
+          { groupItemsRev = [d],
+            groupFirstIx = ix,
+            groupOuterIx = if diffEntry d == k then Just ix else Nothing
+          }
     updateAcc ix d k (Just acc) =
       let outerIx' =
             case groupOuterIx acc of
@@ -261,15 +268,16 @@ groupInnerClassDiffs diffs =
                 if diffEntry d == k
                   then Just ix
                   else Nothing
-      in Just acc
-          { groupItemsRev = d : groupItemsRev acc
-          , groupOuterIx = outerIx'
-          }
+       in Just
+            acc
+              { groupItemsRev = d : groupItemsRev acc,
+                groupOuterIx = outerIx'
+              }
 
     orderedGroupItems k xs =
       let (outer, rest0) = partition (\d -> entryEqCI (diffEntry d) k) xs
           rest = sortOn classDepth rest0
-      in outer ++ rest
+       in outer ++ rest
 
     groupAnchor acc =
       case groupOuterIx acc of
@@ -281,13 +289,13 @@ groupInnerClassDiffs diffs =
       | otherwise =
           let oldChunks =
                 [ "// " <> diffEntry d <> "\n" <> decodeLenient c <> "\n"
-                | d <- xs
-                , Just c <- [diffOldContent d]
+                  | d <- xs,
+                    Just c <- [diffOldContent d]
                 ]
               newChunks =
                 [ "// " <> diffEntry d <> "\n" <> decodeLenient c <> "\n"
-                | d <- xs
-                , Just c <- [diffNewContent d]
+                  | d <- xs,
+                    Just c <- [diffNewContent d]
                 ]
               oldTxt = T.concat oldChunks
               newTxt = T.concat newChunks
@@ -299,19 +307,19 @@ groupInnerClassDiffs diffs =
                 | otherwise = Modified
               oldHash = fmap (digestToHex . hash . BSL.toStrict) oldBs
               newHash = fmap (digestToHex . hash . BSL.toStrict) newBs
-          in JarDiff
-              { diffEntry = k
-              , diffType = dt
-              , diffOldHash = oldHash
-              , diffNewHash = newHash
-              , diffOldContent = oldBs
-              , diffNewContent = newBs
-              }
+           in JarDiff
+                { diffEntry = k,
+                  diffType = dt,
+                  diffOldHash = oldHash,
+                  diffNewHash = newHash,
+                  diffOldContent = oldBs,
+                  diffNewContent = newBs
+                }
 
 data GroupAcc = GroupAcc
-  { groupItemsRev :: ![JarDiff]
-  , groupFirstIx :: !Int
-  , groupOuterIx :: !(Maybe Int)
+  { groupItemsRev :: ![JarDiff],
+    groupFirstIx :: !Int,
+    groupOuterIx :: !(Maybe Int)
   }
 
 entryEqCI :: T.Text -> T.Text -> Bool

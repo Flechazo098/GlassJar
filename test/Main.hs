@@ -1,37 +1,22 @@
-{-|
-Module      : Main
-Description : Test suite for GlassJar.
-Copyright   : (c) Flechazo, 2026
-License     : MIT
-
-Contains unit tests for the diff algorithm and report formatters,
-and integration tests that operate on real JAR files created in
-temporary directories.
--}
-
 {-# LANGUAGE OverloadedStrings #-}
 
+-- |
+-- Module      : Main
+-- Description : Test suite for GlassJar.
+-- Copyright   : (c) Flechazo, 2026
+-- License     : MIT
+--
+-- Contains unit tests for the diff algorithm and report formatters,
+-- and integration tests that operate on real JAR files created in
+-- temporary directories.
 module Main (main) where
 
-import GlassJar
-  ( DiffType (..)
-  , JarDiff (..)
-  , JarEntry (..)
-  , diffJars
-  , groupInnerClassDiffs
-  , formatReport
-  , formatReportGitDiff
-  , formatReportHtml
-  , formatReportJson
-  , readJar
-  )
-
 import Codec.Archive.Zip
-  ( Entry
-  , addEntryToArchive
-  , emptyArchive
-  , fromArchive
-  , toEntry
+  ( Entry,
+    addEntryToArchive,
+    emptyArchive,
+    fromArchive,
+    toEntry,
   )
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
@@ -39,6 +24,18 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
+import GlassJar
+  ( DiffType (..),
+    JarDiff (..),
+    JarEntry (..),
+    diffJars,
+    formatReport,
+    formatReportGitDiff,
+    formatReportHtml,
+    formatReportJson,
+    groupInnerClassDiffs,
+    readJar,
+  )
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -53,8 +50,13 @@ mkEntry name content = toEntry name 0 (BSL.fromStrict content)
 -- | Writes a minimal JAR file to disk containing the given named entries.
 createJar :: FilePath -> [(String, BS.ByteString)] -> IO ()
 createJar path entries = do
-  let archive = foldl (\acc (name, content) ->
-        addEntryToArchive (mkEntry name content) acc) emptyArchive entries
+  let archive =
+        foldl
+          ( \acc (name, content) ->
+              addEntryToArchive (mkEntry name content) acc
+          )
+          emptyArchive
+          entries
   BSL.writeFile path $ fromArchive archive
 
 -------------------------------------------------------------------------------
@@ -92,8 +94,10 @@ testEmpty = do
     then putStrLn "  modified entry: PASS"
     else putStrLn "  modified entry: FAIL"
 
-  let unchangedDiff = diffJars [entry1, JarEntry "b.txt" 100 mempty "h2"]
-                               [entry2, JarEntry "b.txt" 100 mempty "h2"]
+  let unchangedDiff =
+        diffJars
+          [entry1, JarEntry "b.txt" 100 mempty "h2"]
+          [entry2, JarEntry "b.txt" 100 mempty "h2"]
   if null unchangedDiff
     then putStrLn "  multiple unchanged: PASS"
     else putStrLn "  multiple unchanged: FAIL"
@@ -106,14 +110,15 @@ testReportFormat = do
     then putStrLn "  empty report: PASS"
     else putStrLn "  empty report: FAIL"
 
-  let diffs = [ JarDiff "com/App.class" Added    Nothing (Just "abc123") Nothing (Just mempty)
-              , JarDiff "config.xml"    Removed  (Just "def456") Nothing (Just mempty) Nothing
-              , JarDiff "MANIFEST.MF"   Modified (Just "111aaa") (Just "222bbb") (Just mempty) (Just mempty)
-              ]
+  let diffs =
+        [ JarDiff "com/App.class" Added Nothing (Just "abc123") Nothing (Just mempty),
+          JarDiff "config.xml" Removed (Just "def456") Nothing (Just mempty) Nothing,
+          JarDiff "MANIFEST.MF" Modified (Just "111aaa") (Just "222bbb") (Just mempty) (Just mempty)
+        ]
   let report = formatReport diffs
   if "ADDED" `T.isInfixOf` report
-     && "REMOVED" `T.isInfixOf` report
-     && "MODIFIED" `T.isInfixOf` report
+    && "REMOVED" `T.isInfixOf` report
+    && "MODIFIED" `T.isInfixOf` report
     then putStrLn "  full report: PASS"
     else putStrLn "  full report: FAIL"
 
@@ -125,16 +130,17 @@ testGitDiffFormat = do
     then putStrLn "  empty report: PASS"
     else putStrLn "  empty report: FAIL"
 
-  let diffs = [ JarDiff "com/App.class" Added    Nothing (Just "abc123") Nothing (Just mempty)
-              , JarDiff "config.xml"    Removed  (Just "def456") Nothing (Just mempty) Nothing
-              , JarDiff "MANIFEST.MF"   Modified (Just "111aaa") (Just "222bbb") (Just mempty) (Just mempty)
-              ]
+  let diffs =
+        [ JarDiff "com/App.class" Added Nothing (Just "abc123") Nothing (Just mempty),
+          JarDiff "config.xml" Removed (Just "def456") Nothing (Just mempty) Nothing,
+          JarDiff "MANIFEST.MF" Modified (Just "111aaa") (Just "222bbb") (Just mempty) (Just mempty)
+        ]
   let report = formatReportGitDiff diffs
   if "+++ b/new" `T.isInfixOf` report
-     && "--- a/old" `T.isInfixOf` report
-     && "com/App.class" `T.isInfixOf` report
-     && "config.xml" `T.isInfixOf` report
-     && "MANIFEST.MF" `T.isInfixOf` report
+    && "--- a/old" `T.isInfixOf` report
+    && "com/App.class" `T.isInfixOf` report
+    && "config.xml" `T.isInfixOf` report
+    && "MANIFEST.MF" `T.isInfixOf` report
     then putStrLn "  git diff report: PASS"
     else putStrLn "  git diff report: FAIL"
 
@@ -179,8 +185,8 @@ testHtmlFormat = do
   let addedOnly = [JarDiff "new.txt" Added Nothing (Just "abc") Nothing (Just "payload")]
   let hashHtml = formatReportHtml addedOnly
   if "open-toggle" `T.isInfixOf` hashHtml
-     && "hash-toggle" `T.isInfixOf` hashHtml
-     && "old N/A" `T.isInfixOf` hashHtml
+    && "hash-toggle" `T.isInfixOf` hashHtml
+    && "old N/A" `T.isInfixOf` hashHtml
     then putStrLn "  html hash controls: PASS"
     else putStrLn "  html hash controls: FAIL"
 
@@ -202,7 +208,7 @@ testInnerClassGroupingOrder = do
 
   case [d | d <- grouped, diffEntry d == "aa/Foo.class"] of
     [] -> putStrLn "  outer class merged payload ordering: FAIL (grouped entry missing)"
-    (d:_) ->
+    (d : _) ->
       case diffOldContent d of
         Nothing -> putStrLn "  outer class merged payload ordering: FAIL (old payload missing)"
         Just bs -> do
@@ -225,7 +231,7 @@ testInnerClassGroupingOrder = do
 
   case groupedAdded of
     [] -> putStrLn "  added grouping payload ordering: FAIL (grouped entry missing)"
-    (d:_) ->
+    (d : _) ->
       case diffNewContent d of
         Nothing -> putStrLn "  added grouping payload ordering: FAIL (new payload missing)"
         Just bs -> do
@@ -252,18 +258,20 @@ testRealJar = withSystemTempDirectory "glassjar-test" $ \tmpDir -> do
   let jar2Path = tmpDir </> "new.jar"
 
   -- Create old.jar with some entries
-  createJar jar1Path
-    [ ("META-INF/MANIFEST.MF", BS8.pack "Manifest-Version: 1.0\n")
-    , ("com/example/App.class", BS8.pack "fake-bytecode-v1")
-    , ("com/example/Util.class", BS8.pack "fake-bytecode-util")
+  createJar
+    jar1Path
+    [ ("META-INF/MANIFEST.MF", BS8.pack "Manifest-Version: 1.0\n"),
+      ("com/example/App.class", BS8.pack "fake-bytecode-v1"),
+      ("com/example/Util.class", BS8.pack "fake-bytecode-util")
     ]
 
   -- Create new.jar: same App.class, modified Util.class, added Config.class
-  createJar jar2Path
-    [ ("META-INF/MANIFEST.MF", BS8.pack "Manifest-Version: 1.0\n")
-    , ("com/example/App.class", BS8.pack "fake-bytecode-v1")
-    , ("com/example/Util.class", BS8.pack "fake-bytecode-util-MODIFIED")
-    , ("com/example/Config.class", BS8.pack "fake-bytecode-config")
+  createJar
+    jar2Path
+    [ ("META-INF/MANIFEST.MF", BS8.pack "Manifest-Version: 1.0\n"),
+      ("com/example/App.class", BS8.pack "fake-bytecode-v1"),
+      ("com/example/Util.class", BS8.pack "fake-bytecode-util-MODIFIED"),
+      ("com/example/Config.class", BS8.pack "fake-bytecode-config")
     ]
 
   -- Read JARs
@@ -275,9 +283,9 @@ testRealJar = withSystemTempDirectory "glassjar-test" $ \tmpDir -> do
       let diffs = diffJars oldEntries newEntries
 
       -- Check: Util.class modified, Config.class added (App.class unchanged, MANIFEST.MF unchanged)
-      let addedCount    = length [ d | d <- diffs, diffType d == Added    ]
-      let removedCount  = length [ d | d <- diffs, diffType d == Removed  ]
-      let modifiedCount = length [ d | d <- diffs, diffType d == Modified ]
+      let addedCount = length [d | d <- diffs, diffType d == Added]
+      let removedCount = length [d | d <- diffs, diffType d == Removed]
+      let modifiedCount = length [d | d <- diffs, diffType d == Modified]
 
       if addedCount == 1
         then putStrLn "  added entry count: PASS"
@@ -294,7 +302,6 @@ testRealJar = withSystemTempDirectory "glassjar-test" $ \tmpDir -> do
       if diffEntry (head [d | d <- diffs, diffType d == Modified]) == "com/example/Util.class"
         then putStrLn "  modified entry name: PASS"
         else putStrLn "  modified entry name: FAIL"
-
     (Left err, _) -> putStrLn $ "  FAIL: cannot read old.jar: " <> err
     (_, Left err) -> putStrLn $ "  FAIL: cannot read new.jar: " <> err
 
@@ -325,4 +332,3 @@ main = do
 
   putStrLn ""
   putStrLn "=== All tests complete ==="
-

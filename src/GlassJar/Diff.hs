@@ -1,25 +1,24 @@
-{-|
-Module      : GlassJar.Diff
-Description : Line-level diff generation.
-Copyright   : (c) Flechazo, 2026
-License     : MIT
-Maintainer  : 2558755403@qq.com
-
-Defines behavior for converting two UTF-8 text contents into minimal
-line-level edits and context lines.
--}
-
+-- |
+-- Module      : GlassJar.Diff
+-- Description : Line-level diff generation.
+-- Copyright   : (c) Flechazo, 2026
+-- License     : MIT
+-- Maintainer  : 2558755403@qq.com
+--
+-- Defines behavior for converting two UTF-8 text contents into minimal
+-- line-level edits and context lines.
 module GlassJar.Diff
-  ( lineDiff
-  ) where
+  ( lineDiff,
+  )
+where
 
-import GlassJar.Types (DiffLine (..))
-import Data.Array (Array, (!), listArray)
+import Data.Array (Array, listArray, (!))
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
+import GlassJar.Types (DiffLine (..))
 
 -------------------------------------------------------------------------------
 -- Public API
@@ -28,7 +27,6 @@ import Data.Text.Encoding.Error (lenientDecode)
 -- | Returns minimal line-level differences between two text contents.
 --
 -- @ctx@ limits preserved context lines around each changed block.
---
 lineDiff :: Int -> BSL.ByteString -> BSL.ByteString -> [DiffLine]
 lineDiff ctx old new =
   addContext ctx $ myersDiff (toLines old) (toLines new)
@@ -39,11 +37,12 @@ toLines = go
   where
     go bs
       | BSL.null bs = []
-      | otherwise   =
-        case BSL.elemIndex 10 bs of  -- 10 = '\n'
-          Nothing -> [decodeLine bs]
-          Just i  -> let (l, rest) = BSL.splitAt i bs
-                      in decodeLine l : go (BSL.drop 1 rest)
+      | otherwise =
+          case BSL.elemIndex 10 bs of -- 10 = '\n'
+            Nothing -> [decodeLine bs]
+            Just i ->
+              let (l, rest) = BSL.splitAt i bs
+               in decodeLine l : go (BSL.drop 1 rest)
     decodeLine = TE.decodeUtf8With lenientDecode . BSL.toStrict
 
 -------------------------------------------------------------------------------
@@ -54,26 +53,26 @@ toLines = go
 addContext :: Int -> [DiffLine] -> [DiffLine]
 addContext _ [] = []
 addContext ctx ds =
-  let (eqs, rest)   = spanL isKeep ds
+  let (eqs, rest) = spanL isKeep ds
       (chgs, rest2) = spanL (not . isKeep) rest
       (eqs2, rest3) = spanL isKeep rest2
-  in trimCtx ctx eqs ++ chgs ++ trimCtx ctx eqs2 ++ addContext ctx rest3
+   in trimCtx ctx eqs ++ chgs ++ trimCtx ctx eqs2 ++ addContext ctx rest3
   where
     isKeep (DiffKeep _) = True
-    isKeep _            = False
+    isKeep _ = False
 
     trimCtx _ [] = []
     trimCtx c xs
       | length xs <= 2 * c = xs
-      | otherwise          = take c xs ++ drop (length xs - c) xs
+      | otherwise = take c xs ++ drop (length xs - c) xs
 
 -- Strict left-span.
 spanL :: (a -> Bool) -> [a] -> ([a], [a])
 spanL p = go []
   where
-    go acc []     = (reverse acc, [])
-    go acc (x:xs)
-      | p x       = go (x : acc) xs
+    go acc [] = (reverse acc, [])
+    go acc (x : xs)
+      | p x = go (x : acc) xs
       | otherwise = (reverse acc, x : xs)
 
 -------------------------------------------------------------------------------
@@ -88,15 +87,15 @@ myersDiff old new =
       oldArr = listArray (0, n - 1) old
       newArr = listArray (0, m - 1) new
       trace = shortestEditTrace oldArr newArr n m
-  in backtrackDiff oldArr newArr n m trace
+   in backtrackDiff oldArr newArr n m trace
 
 -- Computes a sequence of edit frontiers, one per edit depth.
-shortestEditTrace
-  :: Array Int T.Text
-  -> Array Int T.Text
-  -> Int
-  -> Int
-  -> [IM.IntMap Int]
+shortestEditTrace ::
+  Array Int T.Text ->
+  Array Int T.Text ->
+  Int ->
+  Int ->
+  [IM.IntMap Int]
 shortestEditTrace oldArr newArr n m =
   go 0 (IM.singleton 1 0) []
   where
@@ -104,7 +103,7 @@ shortestEditTrace oldArr newArr n m =
 
     go d v trace
       | d > maxD = trace
-      | reached  = trace'
+      | reached = trace'
       | otherwise = go (d + 1) vNext trace'
       where
         trace' = trace ++ [v]
@@ -114,7 +113,7 @@ shortestEditTrace oldArr newArr n m =
       where
         loopK [] vCur doneFlag = (vCur, doneFlag)
         loopK _ vCur True = (vCur, True)
-        loopK (k:ks) vCur _ =
+        loopK (k : ks) vCur _ =
           let leftX = IM.findWithDefault 0 (k - 1) vPrev
               downX = IM.findWithDefault 0 (k + 1) vPrev
               xStart =
@@ -125,16 +124,16 @@ shortestEditTrace oldArr newArr n m =
               (xEnd, yEnd) = followSnake oldArr newArr n m xStart yStart
               vCur' = IM.insert k xEnd vCur
               done' = xEnd >= n && yEnd >= m
-          in loopK ks vCur' done'
+           in loopK ks vCur' done'
 
 -- Walks backward through edit frontiers to produce a minimal diff.
-backtrackDiff
-  :: Array Int T.Text
-  -> Array Int T.Text
-  -> Int
-  -> Int
-  -> [IM.IntMap Int]
-  -> [DiffLine]
+backtrackDiff ::
+  Array Int T.Text ->
+  Array Int T.Text ->
+  Int ->
+  Int ->
+  [IM.IntMap Int] ->
+  [DiffLine]
 backtrackDiff oldArr newArr n m trace = go (length trace - 1) n m []
   where
     go d x y acc
@@ -154,8 +153,8 @@ backtrackDiff oldArr newArr n m trace = go (length trace - 1) n m []
               accAfterEdit
                 | d <= 0 = accAfterSnake
                 | x1 == prevX = DiffAdd (newArr ! prevY) : accAfterSnake
-                | otherwise   = DiffDel (oldArr ! prevX) : accAfterSnake
-          in go (d - 1) prevX prevY accAfterEdit
+                | otherwise = DiffDel (oldArr ! prevX) : accAfterSnake
+           in go (d - 1) prevX prevY accAfterEdit
 
     consumeSnake acc x y prevX prevY
       | x > prevX && y > prevY =
@@ -163,14 +162,14 @@ backtrackDiff oldArr newArr n m trace = go (length trace - 1) n m []
       | otherwise = (acc, x, y)
 
 -- Skips consecutive matching lines from a given position.
-followSnake
-  :: Array Int T.Text
-  -> Array Int T.Text
-  -> Int
-  -> Int
-  -> Int
-  -> Int
-  -> (Int, Int)
+followSnake ::
+  Array Int T.Text ->
+  Array Int T.Text ->
+  Int ->
+  Int ->
+  Int ->
+  Int ->
+  (Int, Int)
 followSnake oldArr newArr n m x y
   | x >= 0 && y >= 0 && x < n && y < m && oldArr ! x == newArr ! y =
       followSnake oldArr newArr n m (x + 1) (y + 1)

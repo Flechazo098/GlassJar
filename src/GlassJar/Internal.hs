@@ -1,21 +1,20 @@
-{-|
-Module      : GlassJar.Internal
-Description : Shared utility functions for GlassJar modules.
-Copyright   : (c) Flechazo, 2026
-License     : MIT
-Maintainer  : 2558755403@qq.com
--}
-
 {-# LANGUAGE OverloadedStrings #-}
 
+-- |
+-- Module      : GlassJar.Internal
+-- Description : Shared utility functions for GlassJar modules.
+-- Copyright   : (c) Flechazo, 2026
+-- License     : MIT
+-- Maintainer  : 2558755403@qq.com
 module GlassJar.Internal
-  ( digestToHex
-  , digestToHexByteString
-  , isClassEntry
-  , stripClassExt
-  , decodeLenient
-  , toEntryPath
-  ) where
+  ( digestToHex,
+    digestToHexByteString,
+    isClassEntry,
+    stripClassExt,
+    decodeLenient,
+    toEntryPath,
+  )
+where
 
 import Crypto.Hash (Digest, MD5)
 import Data.ByteArray.Encoding (Base (Base16), convertToBase)
