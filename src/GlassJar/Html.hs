@@ -21,7 +21,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isPrint)
 import Data.List (foldl', nub, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Ord (Down (..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -141,10 +141,9 @@ htmlDiffCard i d =
 -- Returns True when a diff entry can render detail content.
 hasDetailContent :: JarDiff -> Bool
 hasDetailContent d = case diffType d of
-  Added    -> maybe False (const True) (diffNewContent d)
-  Removed  -> maybe False (const True) (diffOldContent d)
-  Modified -> maybe False (const True) (diffOldContent d)
-           && maybe False (const True) (diffNewContent d)
+  Added    -> isJust (diffNewContent d)
+  Removed  -> isJust (diffOldContent d)
+  Modified -> isJust (diffOldContent d) && isJust (diffNewContent d)
 
 -- Builds details block for one diff entry.
 htmlDiffDetailsBlock :: JarDiff -> B.Builder
@@ -205,7 +204,7 @@ detailChangeCounts d = case diffType d of
 
 -- Decodes added/removed detail text.
 decodeDetailText :: JarDiff -> Bool -> BSL.ByteString -> T.Text
-decodeDetailText d _isAdded bs = decodeDetailTextFromBytes d bs
+decodeDetailText d _isAdded = decodeDetailTextFromBytes d
 
 -- Decodes bytes to detail text according to entry kind.
 decodeDetailTextFromBytes :: JarDiff -> BSL.ByteString -> T.Text

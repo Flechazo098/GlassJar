@@ -66,6 +66,7 @@ import System.Directory
   , listDirectory
   )
 import System.FilePath ((</>), splitExtension, takeFileName)
+import Data.Maybe (isNothing, isJust)
 
 -------------------------------------------------------------------------------
 -- Core Settings
@@ -293,8 +294,8 @@ groupInnerClassDiffs diffs =
               oldBs = if T.null oldTxt then Nothing else Just (BSL.fromStrict (TE.encodeUtf8 oldTxt))
               newBs = if T.null newTxt then Nothing else Just (BSL.fromStrict (TE.encodeUtf8 newTxt))
               dt
-                | oldBs == Nothing && newBs /= Nothing = Added
-                | oldBs /= Nothing && newBs == Nothing = Removed
+                | isNothing oldBs && isJust newBs = Added
+                | isJust oldBs && isNothing newBs = Removed
                 | otherwise = Modified
               oldHash = fmap (digestToHex . hash . BSL.toStrict) oldBs
               newHash = fmap (digestToHex . hash . BSL.toStrict) newBs

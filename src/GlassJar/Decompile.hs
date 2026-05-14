@@ -201,13 +201,13 @@ buildPayloads settings diffs = concatMap mkOne (zip [0 :: Int ..] diffs)
             && maybe False (`Map.member` changedClassEntries) (outerClassPath (diffEntry d))
         oldPayload =
           [ mkPayload ix False (diffEntry d) oldBs
-          | Just oldBs <- [diffOldContent d]
-          , not shouldSkip
+          | not shouldSkip
+          , Just oldBs <- [diffOldContent d] 
           ]
         newPayload =
           [ mkPayload ix True (diffEntry d) newBs
-          | Just newBs <- [diffNewContent d]
-          , not shouldSkip
+          | not shouldSkip 
+          , Just newBs <- [diffNewContent d]
           ]
 
     mkPayload ix isNew entry bs =
@@ -374,8 +374,8 @@ loadBatchCache
   :: DecompileSettings
   -> [DecompileInput]
   -> IO (Map.Map Int (Either String T.Text))
-loadBatchCache settings inputs =
-  fmap Map.fromList . fmap catMaybes . mapM readOne $ inputs
+loadBatchCache settings =
+  fmap (Map.fromList . catMaybes) . mapM readOne
   where
     readOne di = do
       m <- readCacheText settings di
@@ -388,8 +388,8 @@ saveBatchCache
   -> Map.Map Int (Either String T.Text)
   -> [DecompileInput]
   -> IO ()
-saveBatchCache settings out inputs =
-  mapM_ saveOne inputs
+saveBatchCache settings out =
+  mapM_ saveOne
   where
     saveOne di =
       case Map.lookup (diKey di) out of
